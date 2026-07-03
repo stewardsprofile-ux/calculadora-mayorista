@@ -163,19 +163,198 @@ const matches = indexedCatalog.map((product, catalogIndex) => {
     .slice(0, 3);
   const best = candidates[0];
   const gap = best.score - (candidates[1]?.score || 0);
-  const status = best.score >= 0.86 && gap >= 0.035 ? "seguro" : best.score >= 0.70 ? "revisar" : "sin_match";
+  // A literal normalized-title match is conclusive even when the cost source
+  // contains the same perfume twice, which naturally makes the score gap zero.
+  const status = best.score === 1 || (best.score >= 0.86 && gap >= 0.035)
+    ? "seguro"
+    : best.score >= 0.70 ? "revisar" : "sin_match";
   return { product, catalogIndex, best, candidates, gap, status };
 });
 
-const accepted = matches.filter(match => match.status === "seguro");
-const output = accepted.map(({ product, best }) => ({
-  Title: best.cost.nombre,
-  Image: product.Image,
-  categoria: product.categoria || "Todos",
-  tipo: product.tipo || product.categoria || "Todos",
-  marca: product.marca || "Otros",
-  precio: price(best.cost.costo)
-}));
+const safeMetadataByCost = new Map();
+for (const match of matches) {
+  if (match.status !== "seguro" || (match.best.score < 0.95 && match.best.score !== 1)) continue;
+  if (!safeMetadataByCost.has(match.best.cost.index)) {
+    safeMetadataByCost.set(match.best.cost.index, match.product);
+  }
+}
+
+const localImagesDirectory = path.join(workspace, "images");
+const localImageFiles = fs.existsSync(localImagesDirectory)
+  ? fs.readdirSync(localImagesDirectory).filter(file => /\.(png|jpe?g|webp)$/i.test(file))
+  : [];
+
+function imageFileQuality(file) {
+  const dimensions = String(file).match(/(\d{2,4})x(\d{2,4})/i);
+  if (!dimensions) return 80;
+  const pixels = Number(dimensions[1]) * Number(dimensions[2]);
+  return pixels >= 150000 ? 100 : pixels >= 80000 ? 60 : 20;
+}
+
+const preferredImageFiles = new Map();
+for (const file of localImageFiles) {
+  const signature = imageName(file);
+  const current = preferredImageFiles.get(signature);
+  if (!current || imageFileQuality(file) > imageFileQuality(current)) {
+    preferredImageFiles.set(signature, file);
+  }
+}
+
+const indexedImages = [...preferredImageFiles.values()].map((file, index) => {
+  const signature = imageName(file);
+  return {
+    index,
+    file,
+    signature,
+    tokenSet: new Set(tokens(signature)),
+    imageVolumes: volumes(signature),
+    gender: tokens(signature).find(token => token === "HOMBRE" || token === "MUJER") || ""
+  };
+});
+
+const exactImageIndex = new Map();
+const imageTokenIndex = new Map();
+const imageTokenFrequency = new Map();
+for (const image of indexedImages) {
+  if (!exactImageIndex.has(image.signature)) exactImageIndex.set(image.signature, image);
+  for (const token of image.tokenSet) {
+    imageTokenFrequency.set(token, (imageTokenFrequency.get(token) || 0) + 1);
+    if (token.length < 3) continue;
+    if (!imageTokenIndex.has(token)) imageTokenIndex.set(token, []);
+    imageTokenIndex.get(token).push(image.index);
+  }
+}
+
+function tokenWeight(token) {
+  return 1 + Math.log((indexedImages.length + 1) / ((imageTokenFrequency.get(token) || 0) + 1));
+}
+
+function imageSimilarity(cost, image) {
+  const querySet = cost.tokenSet;
+  let queryWeight = 0;
+  let imageWeight = 0;
+  let commonWeight = 0;
+  for (const token of querySet) {
+    const weight = tokenWeight(token);
+    queryWeight += weight;
+    if (image.tokenSet.has(token)) commonWeight += weight;
+  }
+  for (const token of image.tokenSet) imageWeight += tokenWeight(token);
+  const weightedDice = queryWeight + imageWeight ? (2 * commonWeight) / (queryWeight + imageWeight) : 0;
+  let score = weightedDice * 0.72 + dice(cost.normalized, image.signature) * 0.28;
+
+  const volumeConflict = cost.itemVolumes.length && image.imageVolumes.length &&
+    !cost.itemVolumes.some(value => image.imageVolumes.includes(value));
+  const costGender = cost.tokenSet.has("HOMBRE") ? "HOMBRE" : cost.tokenSet.has("MUJER") ? "MUJER" : "";
+  if (volumeConflict) score -= 0.30;
+  if (costGender && image.gender && costGender !== image.gender) score -= 0.24;
+  return Math.max(0, score);
+}
+
+const imageGenericTokens = new Set([
+  ...attributeTokens,
+  "PERFUM", "DAMA", "CABALLERO", "SP", "SPR", "NUEVO", "NUEVA",
+  "PZS", "PZ", "SET", "CAJA", "BY"
+]);
+
+function distinctiveTokens(value) {
+  return [...new Set(tokens(value).filter(token =>
+    !imageGenericTokens.has(token) &&
+    !/^\d{1,4}(ML|OZ|PZS?)$/.test(token)
+  ))];
+}
+
+function sameDistinctiveName(cost, image) {
+  const volumeConflict = cost.itemVolumes.length && image.imageVolumes.length &&
+    !cost.itemVolumes.some(value => image.imageVolumes.includes(value));
+  const costGender = cost.tokenSet.has("HOMBRE") ? "HOMBRE" : cost.tokenSet.has("MUJER") ? "MUJER" : "";
+  if (volumeConflict || (costGender && image.gender && costGender !== image.gender)) return false;
+
+  const concentrations = value => {
+    const found = new Set(tokens(value).filter(token => ["EDP", "EDT", "EDC", "EXTRAIT", "PARFUM"].includes(token)));
+    if (tokens(value).includes("PERFUM")) found.add("PARFUM");
+    return found;
+  };
+  const costConcentrations = concentrations(cost.normalized);
+  const imageConcentrations = concentrations(image.signature);
+  if (costConcentrations.size && imageConcentrations.size &&
+      ![...costConcentrations].some(value => imageConcentrations.has(value))) return false;
+
+  const left = distinctiveTokens(cost.normalized);
+  const right = distinctiveTokens(image.signature);
+  if (!left.length || left.length !== right.length) return false;
+  const available = [...right];
+  for (const token of left) {
+    let bestIndex = -1;
+    let bestScore = 0;
+    for (let index = 0; index < available.length; index++) {
+      const score = token === available[index] ? 1 : dice(token, available[index]);
+      if (score > bestScore) { bestScore = score; bestIndex = index; }
+    }
+    if (bestScore < 0.74) return false;
+    available.splice(bestIndex, 1);
+  }
+  return true;
+}
+
+function resolveLocalImage(cost, metadata) {
+  const exactSignatures = [imageName(cost.imagen), normalize(cost.nombre)];
+  for (const signature of exactSignatures) {
+    const exact = exactImageIndex.get(signature);
+    if (exact) return { path: `images/${exact.file}`, method: "exacta", score: 1 };
+  }
+
+  if (metadata) {
+    const metadataImage = exactImageIndex.get(imageName(metadata.Image));
+    if (metadataImage) return { path: `images/${metadataImage.file}`, method: "catalogo", score: 1 };
+  }
+
+  const poolIndexes = new Set();
+  for (const token of cost.tokenSet) {
+    const candidates = imageTokenIndex.get(token) || [];
+    if (candidates.length > 500) continue;
+    for (const index of candidates) poolIndexes.add(index);
+  }
+  const candidates = [...poolIndexes]
+    .map(index => {
+      const image = indexedImages[index];
+      return { image, score: imageSimilarity(cost, image) };
+    })
+    .filter(candidate => sameDistinctiveName(cost, candidate.image))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+  const best = candidates[0];
+  const gap = best ? best.score - (candidates[1]?.score || 0) : 0;
+  if (best && best.score >= 0.68 && gap >= 0.02) {
+    return { path: `images/${best.image.file}`, method: "aproximada", score: best.score };
+  }
+  return { path: "assets/logo.png", method: "pendiente", score: best?.score || 0 };
+}
+
+function categoryFor(cost, metadata) {
+  const nameTokens = cost.tokenSet;
+  if (nameTokens.has("HOMBRE")) return "Hombre";
+  if (nameTokens.has("MUJER")) return "Mujer";
+  if (nameTokens.has("UNISEX")) return "Unisex";
+  return metadata?.categoria || "Todos";
+}
+
+// The original visual catalog is the mandatory publication list: all 2,484
+// rows must remain visible, even when the only available image is small.
+const output = matches.map(({ product, best, status }) => {
+  const localImage = exactImageIndex.get(imageName(product.Image));
+  return {
+    Title: product.Title,
+    Image: localImage ? `images/${localImage.file}` : "assets/logo.png",
+    categoria: product.categoria || "Todos",
+    tipo: product.tipo || product.categoria || "Todos",
+    marca: product.marca || "Otros",
+    precio: status === "seguro" ? price(best.cost.costo) : null,
+    precioConfirmado: status === "seguro",
+    imagenMatch: localImage ? "catalogo" : "pendiente",
+    imagenPuntaje: localImage ? 1 : 0
+  };
+});
 
 fs.writeFileSync(path.join(workspace, "catalogo-mayorista.json"), JSON.stringify(output, null, 2));
 
@@ -194,9 +373,17 @@ const report = matches.map(match => ({
 
 fs.writeFileSync(path.join(workspace, "match-report.json"), JSON.stringify(report, null, 2));
 const summary = Object.groupBy(matches, match => match.status);
+const imageSummary = Object.groupBy(output, product => product.imagenMatch);
 console.log({
   catalogo: catalog.length,
   costos: costs.length,
+  publicados: output.length,
+  conPrecio: summary.seguro?.length || 0,
+  consultarPrecio: output.length - (summary.seguro?.length || 0),
+  imagenExacta: imageSummary.exacta?.length || 0,
+  imagenCatalogo: imageSummary.catalogo?.length || 0,
+  imagenAproximada: imageSummary.aproximada?.length || 0,
+  imagenPendiente: imageSummary.pendiente?.length || 0,
   seguros: summary.seguro?.length || 0,
   revisar: summary.revisar?.length || 0,
   sinMatch: summary.sin_match?.length || 0

@@ -1,0 +1,20 @@
+.hero{min-height:auto}
+.category-filters{max-width:980px;gap:9px}
+.category-filters button{min-height:42px;border-color:rgba(217,173,66,.72);border-radius:11px;font-size:.64rem}
+.category-filters button:hover,.category-filters button.active{background:linear-gradient(135deg,rgba(151,103,21,.42),rgba(229,186,83,.13));color:#fff;border-color:#d9ad42;box-shadow:inset 0 0 20px rgba(217,173,66,.08),0 0 12px rgba(0,0,0,.45)}
+.product-image{cursor:zoom-in}
+.product-price{display:block;text-decoration:none}
+.product-price:hover{background:linear-gradient(135deg,#9a6a16,#e5ba53);color:#080808}
+.product-modal{width:min(1180px,92vw);max-height:90vh;padding:0;border:1px solid rgba(217,173,66,.65);border-radius:22px;background:#08090a;color:#fff;overflow:hidden}
+.product-modal::backdrop{background:rgba(0,0,0,.88);backdrop-filter:blur(5px)}
+.modal-layout{position:relative;display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,.9fr);min-height:min(650px,86vh)}
+.modal-visual{display:flex;align-items:center;justify-content:center;padding:34px;background:#f7f7f7}
+.modal-visual img{display:block;width:100%;height:100%;max-height:74vh;object-fit:contain}
+.modal-copy{display:flex;flex-direction:column;justify-content:center;padding:70px 54px 46px;background:#090a0b}
+.modal-brand{color:#d9ad42;font:600 .75rem Cinzel,serif;letter-spacing:.2em;text-transform:uppercase}
+.modal-copy h2{margin:16px 0 24px;font:500 clamp(1.8rem,3.1vw,3rem)/1.02 Cinzel,serif;text-transform:uppercase;overflow-wrap:anywhere}
+.modal-copy p{margin:0 0 30px;color:#aaa;font-size:.78rem;line-height:1.8}
+.modal-action{margin-top:auto;padding:15px;border:1px solid #a77d1f;border-radius:8px;color:#efc452;text-align:center;text-decoration:none;text-transform:uppercase;font-size:.76rem;font-weight:800}
+.modal-action:hover{background:linear-gradient(135deg,#9a6a16,#e5ba53);color:#080808}
+.modal-close{position:absolute;z-index:2;top:16px;right:16px;width:44px;height:44px;border:1px solid #86651f;border-radius:50%;background:#08090a;color:#fff;font-size:1.8rem;line-height:1;cursor:pointer}
+@media(max-width:760px){.product-modal{width:94vw;max-height:92vh}.modal-layout{display:flex;flex-direction:column;min-height:0}.modal-visual{height:52vh;padding:22px}.modal-copy{padding:28px 22px 22px}.modal-copy h2{margin:10px 0 14px;font-size:1.45rem}.modal-copy p{display:none}.modal-action{margin-top:10px}.modal-close{top:10px;right:10px}}

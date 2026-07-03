@@ -10,18 +10,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Montserrat:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="catalog.css">
+  <link rel="stylesheet" href="product-modal.css">
 </head>
 <body>
   <header class="hero">
     <img class="brand-logo" src="assets/logo.png" alt="Elite Parfums">
     <h1>Elite Parfums</h1>
     <p class="eyebrow">Catálogo exclusivo mayorista</p>
-    <div class="metrics">
-      <span><strong id="productCount">0</strong> perfumes con precio</span>
-      <span><strong id="brandCount">0</strong> marcas</span>
-      <span>Envíos a todo Costa Rica</span>
-    </div>
-
     <form id="searchForm" class="search-box">
       <input id="search" type="search" autocomplete="off" placeholder="Buscar perfume o marca..." aria-label="Buscar perfume">
       <button>Buscar</button>
@@ -55,6 +50,22 @@
   </main>
 
   <button id="toTop" class="to-top" aria-label="Volver arriba">↑</button>
+
+  <dialog id="productModal" class="product-modal" aria-labelledby="modalTitle">
+    <div class="modal-layout">
+      <button id="modalClose" class="modal-close" type="button" aria-label="Cerrar">×</button>
+      <div class="modal-visual">
+        <img id="modalImage" src="" alt="">
+      </div>
+      <div class="modal-copy">
+        <span id="modalBrand" class="modal-brand"></span>
+        <h2 id="modalTitle"></h2>
+        <p>Producto seleccionado de Elite Parfums. Consulta disponibilidad y atención personalizada.</p>
+        <a id="modalAction" class="modal-action" target="_blank" rel="noopener noreferrer">Pedir por WhatsApp</a>
+      </div>
+    </div>
+  </dialog>
+
   <script src="catalog.js" defer></script>
 </body>
 </html>
